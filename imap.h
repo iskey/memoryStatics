@@ -9,7 +9,7 @@
 #ifndef BIN_REPOS_IMAP_H
 #define BIN_REPOS_IMAP_H
 
-#define ALLOW_CACHE_NODES
+//#define ALLOW_CACHE_NODES
 
 struct list_node;
 
