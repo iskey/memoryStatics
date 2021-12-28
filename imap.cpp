@@ -3,10 +3,6 @@
 //
 
 #include "imap.h"
-#include "stdlib.h"
-#include <iostream>
-#include <utility>
-#include "stddef.h"
 #include <dlfcn.h>
 
 struct list_node{
@@ -19,6 +15,7 @@ struct list_node{
 
 extern "C" void *__libc_malloc(size_t size) __attribute__((weak));
 extern "C" void __libc_free(void *ptr) __attribute__((weak));
+extern "C" void *memset(void *s, int c, size_t n) __attribute__((weak));
 
 using hash_malloc_t = void *(*)(size_t size);
 inline void* hash_malloc(int size)
@@ -46,7 +43,6 @@ IMap::IMap(size_t size): m_dumpDataFunc(nullptr)
     }
 }
 
-#include <string.h>
 int IMap::initHash(size_t size) {
     if(m_hash_map != nullptr) {
         return 0;
@@ -186,6 +182,7 @@ int IMap::clear()
 
         pthread_mutex_lock(&m_mutex[index % g_mutex_cnt]);
         node = m_hash_map[index].next;
+        m_hash_map[index].next = nullptr;
         while(node != nullptr) {
             node_to_clear = node;
             node = node->next;
