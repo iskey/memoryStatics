@@ -19,6 +19,15 @@
     }\
 }
 
+#define DumpLog(fmt, args...)   \
+{   \
+    if (MemStatistics::m_log_fd != -1) {    \
+        dprintf(MemStatistics::m_log_fd, fmt, ##args);\
+    } else {    \
+        printf(fmt, ##args);   \
+    }\
+}
+
 // global instance.
 MemStatistics * MemStatistics::m_memStatistics = nullptr;
 static char g_raw_memStatics[sizeof(MemStatistics)];
@@ -28,6 +37,8 @@ bool MemStatistics::m_statistics_running = false;
 thread_local bool MemStatistics::sm_statistics_locking = false;
 thread_local pid_t MemStatistics::thread_id = 0;
 
+extern "C" int malloc_trim(size_t pad) __attribute__((weak));
+
 // signal for command line.
 enum SigMemTrace{
     SigMemTrace_start   = 35,
@@ -35,7 +46,8 @@ enum SigMemTrace{
     SigMemTrace_clear   = 37,
     SigMemTrace_dump    = 38,
     SigMemTrace_debug   = 39,
-    SigMemTrace_apped   = 40
+    SigMemTrace_append  = 40,
+    SigMemTrace_trim    = 41
 };
 
 void sigHandler(int sigNum, siginfo_t *siginfo, void *arg)
@@ -58,11 +70,14 @@ void sigHandler(int sigNum, siginfo_t *siginfo, void *arg)
         case SigMemTrace_debug:
             MemIst.m_debug_flag = !MemIst.m_debug_flag;
             break;
-        case SigMemTrace_apped:
+        case SigMemTrace_append:
             MemIst.m_append_modle = !MemIst.m_append_modle;
             break;
         case SigMemTrace_clear:
-            // todo: clear all memory trace.
+            MemIst.clearAllMemNodes();
+            break;
+        case SigMemTrace_trim:
+            MemIst.m_malloc_trim_once = true;
             break;
         default:
             break;
@@ -96,23 +111,34 @@ void regSigaction()
     sigact.sa_sigaction = sigHandler;
     sigemptyset(&sigact.sa_mask);
     sigact.sa_flags = SA_SIGINFO,
-    sigaction(SigMemTrace_apped, &sigact, nullptr);
+    sigaction(SigMemTrace_append, &sigact, nullptr);
+
+    sigact.sa_sigaction = sigHandler;
+    sigemptyset(&sigact.sa_mask);
+    sigact.sa_flags = SA_SIGINFO,
+    sigaction(SigMemTrace_trim, &sigact, nullptr);
+
+    sigact.sa_sigaction = sigHandler;
+    sigemptyset(&sigact.sa_mask);
+    sigact.sa_flags = SA_SIGINFO,
+    sigaction(SigMemTrace_clear, &sigact, nullptr);
 }
 
 MemStatistics::MemStatistics(size_t size):
-m_addr_map(size),
+m_dump_once(false),
+m_debug_flag(false),
+m_append_modle(true),
+m_malloc_trim_once(false),
+m_thread_running_flag(false),
+m_init_flag(false),
+m_seq(0),
 m_allocatedMemSize(0),
 m_activeMemSize(0),
 m_activeMemCnt(0),
-m_peakActiveMemSize(0),
-m_thread_running_flag(false),
-m_dump_once(false),
-m_debug_flag(false),
-m_init_flag(false),
-m_seq(0),
-m_append_modle(true),
 m_appendMemSize(0),
-m_appendMemCnt(0)
+m_appendMemCnt(0),
+m_peakActiveMemSize(0),
+m_addr_map(size)
 {
     m_addr_map.reg_dump_func(std::bind(&MemStatistics::procMemNode, this, std::placeholders::_1));
 }
@@ -152,6 +178,10 @@ MemStatistics &MemStatistics::get()
                 MemIst.dumpMemNodes();
                 MemIst.sm_statistics_locking = false;
             }
+            if (MemIst.m_malloc_trim_once) {
+                MemIst.m_malloc_trim_once = false;
+                malloc_trim(0);
+            }
         }
         sleep(1);
     }
@@ -164,19 +194,13 @@ void MemStatistics::procMemNode(void *data)
     tm *local_time = localtime(&node->time_stamp);
 #ifdef TRACE_BACKTRACE
     char **symbols = nullptr;
-    if (MemStatistics::m_log_fd != -1) {
-        dprintf(MemStatistics::m_log_fd, "########################### current seq = %u, node seq = %u\n", current_seq, node->seq);
-    }
+    DumpLog("########################### current seq = %u, node seq = %u, size = %u\n", current_seq, node->seq, node->size);
     if (MemIst.m_append_modle && (node->seq == current_seq)) {
-        if (MemStatistics::m_log_fd != -1) {
-            dprintf(MemStatistics::m_log_fd, "Node info: tid=%u, time=%d-%02d %02d:%02d:%02d ",node->tid,
-                    local_time->tm_year + 1900, local_time->tm_mon, local_time->tm_hour, local_time->tm_min, local_time->tm_sec);
-        }
+        DumpLog("Node info: tid=%u, current seq = %u, node seq = %u, size = %u, time = %d-%02d %02d:%02d:%02d ",
+                node->tid, current_seq, node->seq, node->size, local_time->tm_year + 1900, local_time->tm_mon, local_time->tm_hour, local_time->tm_min, local_time->tm_sec);
         symbols = backtrace_symbols(node->stack, sizeof(node->stack) / sizeof(node->stack[0]));
         for (int index = 1; index < sizeof(node->stack) / sizeof(node->stack[0]); index++) {
-            if (MemStatistics::m_log_fd != -1) {
-                dprintf(MemStatistics::m_log_fd, " @Frame-%u: %p %s", index, node->stack[index], symbols[index]);
-            }
+            DumpLog(" @Frame-%u: %p %s", index, node->stack[index], symbols[index]);
         }
         if (MemStatistics::m_log_fd != -1) {
             dprintf(MemStatistics::m_log_fd, "\n");
@@ -232,12 +256,13 @@ void MemStatistics::dumpMemNodes()
     m_activeMemCnt = 0;
     m_appendMemSize = 0;
     m_appendMemCnt = 0;
+    DumpLog("Memory statistics start >>>>>>>>>> \n");
 
     m_addr_map.dump();
 
-    dprintf(m_log_fd, "Total Append Cnt : %lu\n", m_appendMemCnt);
-    dprintf(m_log_fd, "Total Append Size : %lu\n", m_appendMemSize);
-    dprintf(m_log_fd, "Total Activate Cnt : %lu\n", m_activeMemCnt);
-    dprintf(m_log_fd, "Total Activate Size : %lu\n", m_activeMemSize);
-    dprintf(m_log_fd, "Total Allocated Size : %lu\n", m_allocatedMemSize);
+    DumpLog("Total Append Cnt : %lu\n", m_appendMemCnt);
+    DumpLog("Total Append Size : %lu\n", m_appendMemSize);
+    DumpLog("Total Activate Cnt : %lu\n", m_activeMemCnt);
+    DumpLog("Total Activate Size : %lu\n", m_activeMemSize);
+    DumpLog("Total Allocated Size : %lu\n", m_allocatedMemSize);
 }
