@@ -63,9 +63,13 @@ public:
     bool m_debug_flag;
     // 增量打印模式
     bool m_append_modle;
+    // malloc trim
+    bool m_malloc_trim_once;
     bool m_thread_running_flag;
 
     static int m_log_fd;
+    static int m_malloc_status_fd;
+    static void *m_malloc_info_fd;
 
     // 是否正在进行统计工作
     static thread_local bool sm_statistics_locking;
