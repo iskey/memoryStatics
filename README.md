@@ -15,18 +15,22 @@ enum SigMemTrace{
     SigMemTrace_clear   = 37,
     SigMemTrace_dump    = 38,
     SigMemTrace_debug   = 39,
-    SigMemTrace_apped   = 40
+    SigMemTrace_append  = 40,
+    SigMemTrace_trim    = 41
 };
 ```
 
-- SigMemTrace_start: Start to do memory statistics
-
-- SigMemTrace_stop: Stop doing memory statistics
-
-- SigMemTrace_clear: Clear all memory statistics
-
-- SigMemTrace_dump: Dump memory statistics
-
-- SigMemTrace_debug: Open debug messages
-
-- SigMemTrace_apped: Work in append mode
+- SigMemTrace_start
+    Start to do memory statistics
+- SigMemTrace_stop
+    Stop doing memory statistics
+- SigMemTrace_clear
+    Clear all memory statistics
+- SigMemTrace_dump
+    Dump memory statistics
+- SigMemTrace_debug
+    Open debug messages, such as malloc info.
+- SigMemTrace_apped
+    Work in append mode
+- SigMemTrace_trim
+    do malloc_trim once.
