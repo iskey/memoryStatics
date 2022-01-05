@@ -103,8 +103,13 @@ FUNC_C_X(realloc, void *, (void *ptr, size_t size))
 
     new_ptr = LIBC_FUNC(realloc)(ptr, size);
 
-    REMOVE_FROM_MEM_STATISTICS(ptr);
-    ADD_TO_MEM_STATISTICS(new_ptr, size);
+    if(new_ptr != nullptr) {
+        REMOVE_FROM_MEM_STATISTICS(ptr);
+        ADD_TO_MEM_STATISTICS(new_ptr, size);
+    } else {
+        REMOVE_FROM_MEM_STATISTICS(ptr);
+        ADD_TO_MEM_STATISTICS(ptr, size);
+    }
 
     return new_ptr;
 }
