@@ -11,10 +11,11 @@
 #include <fcntl.h>
 #include <sys/syscall.h>
 
-#define SaveStackFrames(stack, frame_cnt)\
+#define SaveStackFrames(stack_cnt, stack, stack_size)\
 {\
-    int index = backtrace(stack, frame_cnt);\
-    for (; index < frame_cnt; index++) {\
+    int index = backtrace(stack, stack_size);\
+    stack_cnt = index;  \
+    for (; index < stack_size; index++) {\
         stack[index] = nullptr;\
     }\
 }
@@ -139,10 +140,13 @@ void dump_malloc_stats()
     ftruncate(MemIst.m_malloc_status_fd, 0);
     save_err_fd = dup(fileno(stderr));
     if (-1 == dup2(MemIst.m_malloc_status_fd, fileno(stderr))) {
+        dup2(save_err_fd, fileno(stderr));
+        close(save_err_fd);
         return;
     }
     malloc_stats();
     dup2(save_err_fd, fileno(stderr));
+    close(save_err_fd);
 }
 
 extern "C" int malloc_info(int options, FILE *stream) __attribute__((weak));
@@ -241,20 +245,18 @@ void MemStatistics::procMemNode(void *data)
     tm *local_time = localtime(&node->time_stamp);
 #ifdef TRACE_BACKTRACE
     char **symbols = nullptr;
-    DumpLog("########################### current seq = %u, node seq = %u, size = %u\n", current_seq, node->seq, node->size);
+    DumpLog("###### time=%d-%02d-%02d_%02d:%02d:%02d, tid=%u, current_seq=%u, node_seq=%u, size=%u, addr=%p ",
+            local_time->tm_year + 1900, local_time->tm_mon + 1, local_time->tm_mday, local_time->tm_hour, local_time->tm_min, local_time->tm_sec,
+            node->tid, current_seq, node->seq, node->size, node->addr);
     if (MemIst.m_append_modle && (node->seq == current_seq)) {
-        DumpLog("Node info: tid=%u, current seq = %u, node seq = %u, size = %u, time = %d-%02d-%2d %02d:%02d:%02d ",
-                node->tid, current_seq, node->seq, node->size, local_time->tm_year + 1900, local_time->tm_mon, local_time->tm_mday, local_time->tm_hour, local_time->tm_min, local_time->tm_sec);
         symbols = backtrace_symbols(node->stack, sizeof(node->stack) / sizeof(node->stack[0]));
-        for (int index = 1; index < sizeof(node->stack) / sizeof(node->stack[0]); index++) {
-            DumpLog(" @Frame-%u: %p %s", index, node->stack[index], symbols[index]);
-        }
-        if (MemStatistics::m_log_fd != -1) {
-            dprintf(MemStatistics::m_log_fd, "\n");
+        for (int index = 1; index < sizeof(node->stack) / sizeof(node->stack[0]) && index < node->stack_cnt; index++) {
+            DumpLog(" @Frame-%u: %s", index, symbols[index]);
         }
         m_appendMemSize += node->size;
         m_appendMemCnt += 1;
     }
+    DumpLog("\n");
 #endif
     m_activeMemSize += node->size;
     m_activeMemCnt += 1;
@@ -280,7 +282,7 @@ void MemStatistics::addMemNode(void* addr, size_t size) {
     }
     node->tid = MemIst.thread_id;
 
-    SaveStackFrames(node->stack, sizeof(node->stack) / sizeof(node->stack[0]));
+    SaveStackFrames(node->stack_cnt, node->stack, sizeof(node->stack) / sizeof(node->stack[0]));
 
     m_addr_map.insert((uintptr_t)addr, node);
 
