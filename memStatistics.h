@@ -15,8 +15,8 @@
 #define TRACE_BACKTRACE
 
 namespace {
-    const char *DUMP_LOG_FILE = "/opt/log/mem_dump.log";
-    const uint8_t STACK_DEPTH = 10;
+    const char *DUMP_LOG_FILE = "/usr/alg_model/mem_dump.log";
+    const uint8_t STACK_DEPTH = 30;
     const uint32_t HASH_BUCKET_SIZE = 3000;
 }
 
@@ -25,6 +25,7 @@ struct mem_node {
     void* addr;
     uint32_t size;
     pid_t tid;
+    uint8_t stack_cnt;
     void* stack[STACK_DEPTH];
     time_t time_stamp;
 };
