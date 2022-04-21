@@ -238,12 +238,63 @@ MemStatistics &MemStatistics::get()
     }
 }
 
+static void localtime_safe(time_t time, long timezone, struct tm *tm_time)
+{
+    const char Days[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    uint32_t n32_Pass4year;
+    uint32_t n32_hpery;
+
+    time = time + (timezone * 60 * 60);
+
+    if (time < 0) {
+        time = 0;
+    }
+    tm_time->tm_sec = (int)(time % 60);
+    time /= 60;
+    tm_time->tm_min = (int)(time % 60);
+    time /= 60;
+    n32_Pass4year = ((unsigned int)time / (1461L * 24L));
+    tm_time->tm_year = (n32_Pass4year << 2) + 70;
+    time %= 1461L * 24L;
+    for (;;) {
+        n32_hpery = 365 * 24;
+        if ((tm_time->tm_year & 3) == 0) {
+            n32_hpery += 24;
+        }
+        if (time < n32_hpery) {
+            break;
+        }
+        tm_time->tm_year++;
+        time -= n32_hpery;
+    }
+    tm_time->tm_hour = (int)(time % 24);
+    time /= 24;
+    time++;
+    if ((tm_time->tm_year & 3) == 0) {
+        if (time > 60) {
+            time--;
+        } else {
+            if (time == 60) {
+                tm_time->tm_mon = 1;
+                tm_time->tm_mday = 29;
+                return;
+            }
+        }
+    }
+    for (tm_time->tm_mon = 0; Days[tm_time->tm_mon] < time; tm_time->tm_mon++) {
+        time -= Days[tm_time->tm_mon];
+    }
+
+    tm_time->tm_mday = (int)(time);
+    return;
+}
+
 void MemStatistics::procMemNode(void *data)
 {
     auto* node = (struct mem_node*)data;
     uint32_t current_seq = MemIst.m_seq - 1;
     tm local_time;
-    localtime_r(&node->time_stamp, &local_time);
+    localtime_safe(node->time_stamp, 0, &local_time);
 #ifdef TRACE_BACKTRACE
     char **symbols = nullptr;
     DumpLog("###### time=%d-%02d-%02d_%02d:%02d:%02d, tid=%u, current_seq=%u, node_seq=%u, size=%u, addr=%p ",
