@@ -242,11 +242,12 @@ void MemStatistics::procMemNode(void *data)
 {
     auto* node = (struct mem_node*)data;
     uint32_t current_seq = MemIst.m_seq - 1;
-    tm *local_time = localtime(&node->time_stamp);
+    tm local_time;
+    localtime_r(&node->time_stamp, &local_time);
 #ifdef TRACE_BACKTRACE
     char **symbols = nullptr;
     DumpLog("###### time=%d-%02d-%02d_%02d:%02d:%02d, tid=%u, current_seq=%u, node_seq=%u, size=%u, addr=%p ",
-            local_time->tm_year + 1900, local_time->tm_mon + 1, local_time->tm_mday, local_time->tm_hour, local_time->tm_min, local_time->tm_sec,
+            local_time.tm_year + 1900, local_time.tm_mon + 1, local_time.tm_mday, local_time.tm_hour, local_time.tm_min, local_time.tm_sec,
             node->tid, current_seq, node->seq, node->size, node->addr);
     if (MemIst.m_append_modle && (node->seq == current_seq)) {
         symbols = backtrace_symbols(node->stack, sizeof(node->stack) / sizeof(node->stack[0]));
